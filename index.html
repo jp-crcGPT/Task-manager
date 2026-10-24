@@ -130,7 +130,7 @@ main {
 kbd { font: 500 11.5px var(--font-mono); border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
 
 /* ---------- type ---------- */
-.view-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.view-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 .view-head > div:first-child { min-width: 0; }
 .eyebrow, .label { font: 500 12px/1.3 var(--font-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
 .h1 { font: 700 32px/1.08 var(--font-display); letter-spacing: -.012em; margin: 4px 0 0; text-wrap: balance; }
@@ -209,7 +209,6 @@ select.input { padding-right: 30px; appearance: none; cursor: pointer;
 .sync.err { color: var(--warn); }
 
 /* ---------- MVD cards ---------- */
-.mvd-list { display: grid; gap: 10px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; }
 .mvd { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px; padding: 14px 16px 14px 14px; }
 .mvd.first { padding: 18px 18px 16px 16px; border-color: var(--accent-line); box-shadow: var(--shadow); }
@@ -272,6 +271,29 @@ select.input { padding-right: 30px; appearance: none; cursor: pointer;
 .tomorrow { padding: 16px; display: grid; gap: 10px; }
 .tomorrow-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .plan-cta { display: grid; gap: 8px; padding: 18px; border: 1px dashed var(--accent-line); border-radius: 14px; background: transparent; }
+
+/* Work and Personal lists on Today */
+.areas { display: grid; gap: 22px; }
+.areas.after-card { margin-top: 22px; }
+.area { display: grid; gap: 10px; }
+.area-h { margin: 0; font: inherit; }
+.area-head {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 46px; padding: 6px 2px;
+  border: 0; border-bottom: 1px solid var(--line-2); border-radius: 0; background: none; color: var(--ink); cursor: pointer; text-align: left;
+}
+.area-head:hover .area-name { color: var(--accent); }
+.area-name { flex: 1; min-width: 0; font: 700 19px/1.2 var(--font-display); }
+.area-count { display: inline-flex; align-items: center; gap: 5px; font: 500 12.5px var(--font-mono); color: var(--ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.area-count.all-done { color: var(--done); }
+.area-head .chev { display: grid; color: var(--ink-3); transition: transform .15s; }
+.area-head[aria-expanded="false"] .chev { transform: rotate(-90deg); }
+.area-body { display: grid; gap: 10px; }
+.due-fold > summary { min-height: 40px; padding: 4px 2px; }
+.due-fold .list, .due-only .list { margin-top: 6px; }
+.lead-row { display: grid; gap: 2px; }
+.lead-row + .lead-row { border-top: 1px solid var(--line); padding-top: 10px; }
+.prep-group { display: grid; gap: 8px; }
+.prep-group + .prep-group { margin-top: 20px; }
 
 /* hit-rate strip */
 .hit { display: grid; gap: 8px; }
@@ -400,7 +422,7 @@ details.fold[open] > summary .chev { transform: rotate(180deg); }
 }
 .sheet.enter { animation: rise .2s ease-out; }
 @keyframes rise { from { transform: translateY(18px); opacity: .5; } to { transform: none; opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .sheet.enter { animation: none; } details.fold > summary .chev { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .sheet.enter { animation: none; } details.fold > summary .chev, .area-head .chev { transition: none; } }
 @media (min-width: 700px) {
   .scrim { align-items: center; padding: 24px; }
   .sheet { border-radius: 16px; padding: 22px 24px; }
@@ -526,7 +548,7 @@ const ICON = {};
 Object.keys(PATHS).forEach(k => { ICON[k] = icon(k); });
 
 /* ================= store ================= */
-const blankPrefs = () => ({ theme: 'auto', remindAt: '21:30', tab: 'Work', sort: 'smart', group: 'none', status: 'open', reminderAdded: false });
+const blankPrefs = () => ({ theme: 'auto', remindAt: '21:30', tab: 'Work', sort: 'smart', group: 'none', status: 'open', reminderAdded: false, todayCollapsed: {} });
 const blank = () => ({
   v: 1, tasks: {}, rules: {}, days: {},
   settings: { tags: { id: 'tags', value: { Work: [], Personal: [] }, updated: 0 } },
@@ -612,9 +634,13 @@ function unplan(t, keepHistory) {
   t.mvdDate = '';
   t.mvdOrder = 0;
 }
+// MVD order counts within each area: Work #1, #2… and Personal #1, #2…
+function nextOrder(date, area, exceptId) {
+  return mvdFor(date).filter(x => x.id !== exceptId && x.area === area).reduce((m, x) => Math.max(m, Number(x.mvdOrder) || 0), 0) + 1;
+}
 function planFor(t, date, order, keepHistory) {
   if (t.mvdDate && t.mvdDate !== date) unplan(t, keepHistory || t.mvdDate < today());
-  t.mvdOrder = order || (mvdFor(date).filter(x => x.id !== t.id).length + 1);
+  t.mvdOrder = order || nextOrder(date, t.area, t.id);
   t.mvdDate = date;
   const d = dayRec(date);
   if (d.items.indexOf(t.id) < 0) { d.items.push(t.id); put('days', d); }
@@ -900,8 +926,43 @@ function previewBanner() {
 }
 
 /* ================= views: Today ================= */
+// The lead is the first unfinished MVD item in its area: the card to start with.
+function isLead(t) {
+  if (t.status !== 'Open' || !t.mvdDate) return false;
+  const first = mvdFor(t.mvdDate).find(x => x.area === t.area && x.status === 'Open');
+  return !!first && first.id === t.id;
+}
+function leadsHtml(list) {
+  return AREAS.map(a => {
+    const l = list.filter(x => x.area === a);
+    if (!l.length) return '';
+    const f = l.find(x => x.status === 'Open');
+    return '<div class="lead-row"><p class="label">' + a + ' · ' + plural(l.length, 'item') + '</p>' +
+      (f ? '<p>Starts with <strong>' + esc(f.title) + '</strong></p>' + (f.firstStep ? '<p class="hint">First step: ' + esc(f.firstStep) + '</p>' : '') : '<p class="muted">All done</p>') + '</div>';
+  }).join('');
+}
+function areaSection(area, list, t) {
+  const items = list.filter(x => x.area === area);
+  const due = openTasks().filter(x => x.area === area && x.mvdDate !== t && x.due && x.due <= t && !(x.mvdDate && x.mvdDate < t)).sort(smartSort);
+  if (!items.length && !due.length) return '';
+  const collapsed = !!(S.prefs.todayCollapsed || {})[area];
+  const done = items.filter(x => x.status === 'Done').length;
+  const allDone = items.length > 0 && done === items.length;
+  const count = items.length ? done + ' of ' + items.length + ' done' : due.length + ' due';
+  let body = items.map(mvdCard).join('');
+  if (due.length) {
+    const rows = '<div class="list">' + due.map(taskRow).join('') + '</div>';
+    body += items.length
+      ? '<details class="fold due-fold" data-key="due-' + area + '"><summary><span class="label">Also due today or overdue · ' + due.length + '</span><span class="chev">' + ICON.down + '</span></summary>' + rows + '</details>'
+      : '<div class="due-only"><p class="label">Due today or overdue</p>' + rows + '</div>';
+  }
+  const id = area.toLowerCase();
+  return '<section class="area"><h2 class="area-h"><button type="button" class="area-head" id="area-head-' + id + '" data-action="area-toggle" data-area="' + area + '" aria-expanded="' + !collapsed + '" aria-controls="area-' + id + '">' +
+    '<span class="area-name">' + area + '</span><span class="area-count' + (allDone ? ' all-done' : '') + '">' + (allDone ? ICON.check : '') + count + '</span><span class="chev">' + ICON.down + '</span></button></h2>' +
+    '<div class="area-body" id="area-' + id + '"' + (collapsed ? ' hidden' : '') + '>' + body + '</div></section>';
+}
 function mvdCard(t, i) {
-  const first = i === 0, done = t.status === 'Done';
+  const done = t.status === 'Done', first = isLead(t);
   const link = safeUrl(t.link);
   const open = ui.expanded[t.id] === undefined ? first : ui.expanded[t.id];
   let body = '';
@@ -952,28 +1013,23 @@ function renderToday() {
       '<ol class="steps"><li>Add what’s on your mind. One line per task is enough.</li><li>Tonight, plan tomorrow: pick 1–4 tasks and write the first step for each.</li><li>Tomorrow, open the app and start with #1.</li></ol>' +
       '<div class="row-actions"><button type="button" class="btn primary" data-action="quick">' + icon('plus', 18) + ' Add tasks</button>' +
       (!PREVIEW && !connected() ? '<button type="button" class="btn" data-action="nav" data-view="settings">Connect Google Sheet</button>' : '') + '</div></section>';
-  } else if (!list.length) {
-    h += '<section class="card empty-card"><p class="label">Today’s MVD</p><h2 class="h2">No plan for today yet</h2>' +
-      '<p class="muted">Pick 1–4 things you will finish today. It takes about a minute.</p>' +
-      '<button type="button" class="btn primary" data-action="plan" data-target="' + t + '">Plan today</button></section>';
   } else {
-    h += '<section aria-label="Today’s MVD"><div class="section-head"><p class="label">Today’s MVD</p><div class="progress"><span class="bars" aria-hidden="true">' +
-      list.map(x => '<i class="' + (x.status === 'Done' ? 'on' : '') + '"></i>').join('') + '</span>' + done + ' of ' + list.length + ' done</div></div>';
-    if (done === list.length) h += '<div class="notice ok"><div><strong>MVD done for today.</strong> Anything else is a bonus.</div></div>';
-    h += '<div class="mvd-list">' + list.map(mvdCard).join('') + '</div></section>';
-  }
-  const dueList = openTasks().filter(x => x.mvdDate !== t && x.due && x.due <= t && !(x.mvdDate && x.mvdDate < t)).sort(smartSort);
-  if (dueList.length) {
-    h += '<section class="section"><details class="fold"' + (list.length ? '' : ' open') + '><summary><span class="label">Due today or overdue · ' + dueList.length + '</span><span class="chev">' + ICON.down + '</span></summary>' +
-      '<div class="list" style="margin-top:10px">' + dueList.map(taskRow).join('') + '</div></details></section>';
+    if (!list.length) {
+      h += '<section class="card empty-card"><p class="label">Today’s MVD</p><h2 class="h2">No plan for today yet</h2>' +
+        '<p class="muted">Pick 1–4 things you will finish today. It takes about a minute.</p>' +
+        '<button type="button" class="btn primary" data-action="plan" data-target="' + t + '">Plan today</button></section>';
+    } else {
+      h += '<div class="section-head"><p class="label">Today’s MVD</p><div class="progress"><span class="bars" aria-hidden="true">' +
+        list.map(x => '<i class="' + (x.status === 'Done' ? 'on' : '') + '"></i>').join('') + '</span>' + done + ' of ' + list.length + ' done</div></div>';
+      if (done === list.length) h += '<div class="notice ok"><div><strong>MVD done for today.</strong> Anything else is a bonus.</div></div>';
+    }
+    const areas = AREAS.map(a => areaSection(a, list, t)).join('');
+    if (areas) h += '<div class="areas' + (list.length ? '' : ' after-card') + '">' + areas + '</div>';
   }
   if (allTasks().length) {
     if (tmr.length) {
-      const f = tmr[0];
       h += '<section class="section card tomorrow"><div class="tomorrow-top"><p class="label">Tomorrow · ' + plural(tmr.length, 'item') + ' planned</p>' +
-        '<button type="button" class="btn small" data-action="plan" data-target="' + tmrDate + '">Edit plan</button></div>' +
-        '<p>Starts with <strong>#1 ' + esc(f.title) + '</strong></p>' +
-        (f.firstStep ? '<div class="next" style="margin-top:0"><span class="next-label">First step</span><span>' + esc(f.firstStep) + '</span></div>' : '') + '</section>';
+        '<button type="button" class="btn small" data-action="plan" data-target="' + tmrDate + '">Edit plan</button></div>' + leadsHtml(tmr) + '</section>';
     } else {
       h += '<section class="section plan-cta"><h2 class="h2">Plan tomorrow tonight</h2><p class="muted">Close out today, pick tomorrow’s 1–4 tasks and write their first steps. About two minutes.</p>' +
         '<div><button type="button" class="btn primary" data-action="plan" data-target="' + tmrDate + '">' + icon('plan', 18) + ' Plan tomorrow</button></div></section>';
@@ -1155,11 +1211,11 @@ function prepMissing(p) {
 function planPrep(p) {
   const sel = p.selected.map(id => S.tasks[id]).filter(Boolean);
   sel.forEach(x => { if (!p.prep[x.id]) p.prep[x.id] = { firstStep: x.firstStep || '', link: x.link || '', details: x.details || '' }; });
-  const n = sel.length;
   const missing = prepMissing(p);
-  return '<p class="lede">Put the most important task first. If only one gets done, it should be #1. Then write the very first action for each, so you can start without thinking.</p>' +
-    '<div class="prep-list">' + sel.map((x, i) => {
-      const v = p.prep[x.id], done = x.status === 'Done';
+  const groups = AREAS.map(a => [a, sel.filter(x => x.area === a)]).filter(g => g[1].length);
+  return '<p class="lede">Order each list so the most important task is #1. Then write the very first action for each, so you can start without thinking.</p>' +
+    groups.map(([area, list]) => '<div class="prep-group"><p class="label">' + area + ' · ' + plural(list.length, 'item') + '</p><div class="prep-list">' + list.map((x, i, arr) => {
+      const v = p.prep[x.id], done = x.status === 'Done', n = arr.length;
       return '<div class="card prep' + (i === 0 ? ' first' : '') + '"><div class="prep-head"><span class="rank">#' + (i + 1) + '</span><span class="prep-title">' + esc(x.title) + '</span><span class="order">' +
         '<button type="button" class="icon-btn" data-action="move" data-id="' + esc(x.id) + '" data-dir="-1" aria-label="Move up"' + (i === 0 ? ' disabled' : '') + '>' + ICON.up + '</button>' +
         '<button type="button" class="icon-btn" data-action="move" data-id="' + esc(x.id) + '" data-dir="1" aria-label="Move down"' + (i === n - 1 ? ' disabled' : '') + '>' + ICON.down + '</button></span></div>' +
@@ -1168,14 +1224,13 @@ function planPrep(p) {
           '<label class="field"><span>Link</span><input id="pl-' + esc(x.id) + '" class="input" type="url" inputmode="url" data-input="prep" data-id="' + esc(x.id) + '" data-field="link" value="' + esc(v.link) + '" placeholder="https:// file, mail thread or page" autocomplete="off"></label>' +
           '<label class="field"><span>Context</span><textarea id="pd-' + esc(x.id) + '" class="input" rows="2" data-input="prep" data-id="' + esc(x.id) + '" data-field="details" placeholder="Where you left off, who to contact">' + esc(v.details) + '</textarea></label>') +
         '</div>';
-    }).join('') + '</div>' +
+    }).join('') + '</div></div>').join('') +
     '<p id="prep-missing" class="hint" style="margin-top:12px;color:var(--warn)">' + (missing ? plural(missing, 'task') + ' without a first step. You’ll have to work ' + (missing === 1 ? 'it' : 'them') + ' out in the morning.' : '') + '</p>' +
     '<div class="wizard-foot"><button type="button" class="btn ghost" data-action="prep-back">Back</button><span class="spacer"></span><button type="button" class="btn primary" data-action="plan-save">Save plan</button></div>';
 }
 function planDone(p) {
-  const list = mvdFor(p.target), f = list[0];
-  return '<section class="card done-card"><p class="label">' + (p.target === today() ? 'Today' : 'Tomorrow') + ' is set · ' + plural(list.length, 'item') + '</p>' +
-    (f ? '<p>Start with <strong>#1 ' + esc(f.title) + '</strong></p>' + (f.firstStep ? '<div class="next" style="margin-top:0"><span class="next-label">First step</span><span>' + esc(f.firstStep) + '</span></div>' : '') : '') +
+  const list = mvdFor(p.target);
+  return '<section class="card done-card"><p class="label">' + (p.target === today() ? 'Today' : 'Tomorrow') + ' is set · ' + plural(list.length, 'item') + '</p>' + leadsHtml(list) +
     '<div class="row-actions"><button type="button" class="btn primary" data-action="nav" data-view="today">Go to Today</button><button type="button" class="btn ghost" data-action="plan" data-target="' + p.target + '">Edit again</button></div>' +
     (!S.prefs.reminderAdded ? '<p class="hint">Tip: add a nightly planning reminder in Settings.</p>' : '') + '</section>';
 }
@@ -1183,10 +1238,12 @@ function savePlan() {
   const p = ui.plan;
   const sel = p.selected.map(id => S.tasks[id]).filter(Boolean);
   mvdFor(p.target).forEach(x => { if (p.selected.indexOf(x.id) < 0) { unplan(x, false); put('tasks', x); } });
-  sel.forEach((x, i) => {
+  const rank = {};
+  sel.forEach(x => {
     const v = p.prep[x.id];
     if (v && x.status === 'Open') { x.firstStep = v.firstStep.trim(); x.link = normUrl(v.link); x.details = v.details.trim(); }
-    planFor(x, p.target, i + 1);
+    rank[x.area] = (rank[x.area] || 0) + 1;
+    planFor(x, p.target, rank[x.area]);
     put('tasks', x);
   });
   const d = dayRec(p.target);
@@ -1362,6 +1419,11 @@ const SHEETS = {
       '<p class="hint">This note goes into your monthly work report. <kbd>Ctrl</kbd> + <kbd>Enter</kbd> saves.</p>' +
       '<div class="sheet-actions"><span class="spacer"></span><button type="button" class="btn ghost" data-action="close">Cancel</button><button id="note-save" type="submit" class="btn primary"' + (s.note.trim().length < 3 ? ' disabled' : '') + '>Mark done</button></div></form>';
   },
+  confirm() {
+    const t = S.tasks[ui.sheet.id];
+    return '<form class="sheet-form" data-submit="confirm-done"><div class="sheet-head"><div><p class="label">Mark as done?</p><h2 class="h2" id="sheet-title">' + esc(t ? t.title : '') + '</h2></div>' + closeBtn + '</div>' +
+      '<div class="sheet-actions"><span class="spacer"></span><button type="button" class="btn ghost" data-action="close">Cancel</button><button id="confirm-done" type="submit" class="btn primary">Mark done</button></div></form>';
+  },
   copy() {
     return '<div class="sheet-form"><div class="sheet-head"><h2 class="h2" id="sheet-title">Copy the report</h2>' + closeBtn + '</div>' +
       '<p class="muted">Your browser blocked automatic copying. The text is selected below; copy it with your device’s copy command.</p>' +
@@ -1392,6 +1454,7 @@ function renderSheet() {
   paintChrome();
 }
 function openSheet(obj, focusId) {
+  hideToast();
   ui.sheet = Object.assign({ fresh: true, returnTo: document.activeElement }, obj);
   renderSheet();
   if (focusId) setTimeout(() => { const el = document.getElementById(focusId); if (el) { el.focus(); if (el.select && focusId === 'copy-text') el.select(); } }, 30);
@@ -1450,9 +1513,9 @@ function render() {
   let s0 = null, s1 = null;
   if (fid) { try { s0 = a.selectionStart; s1 = a.selectionEnd; } catch (e) { /* not text */ } }
   const openFolds = {};
-  main.querySelectorAll('details.fold').forEach((d, i) => { openFolds[i] = d.open; });
+  main.querySelectorAll('details.fold[data-key]').forEach(d => { openFolds[d.dataset.key] = d.open; });
   main.innerHTML = VIEWS[ui.view]();
-  main.querySelectorAll('details.fold').forEach((d, i) => { if (openFolds[i] !== undefined) d.open = openFolds[i]; });
+  main.querySelectorAll('details.fold[data-key]').forEach(d => { if (openFolds[d.dataset.key] !== undefined) d.open = openFolds[d.dataset.key]; });
   if (fid) restoreFocus(fid, s0, s1);
   paintChrome();
   lastDay = today();
@@ -1491,17 +1554,20 @@ function toast(msg, action) {
   el.hidden = false;
   toastAct = action ? action.fn : null;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; toastAct = null; }, action ? 6000 : 2800);
+  toastTimer = setTimeout(hideToast, action ? 6000 : 2800);
+}
+function hideToast() {
+  clearTimeout(toastTimer);
+  document.getElementById('toast').hidden = true;
+  toastAct = null;
 }
 
 /* ================= actions ================= */
 function task(el) { return S.tasks[el.dataset.id]; }
 function completeFlow(t) {
   if (!t || t.status !== 'Open') return;
-  if (t.area === 'Work') { openSheet({ kind: 'note', id: t.id, note: t.note || '' }, 'note-input'); return; }
-  const undo = completeTask(t);
-  render();
-  toast('Done: ' + t.title, { label: 'Undo', fn: undo });
+  if (t.area === 'Work') openSheet({ kind: 'note', id: t.id, note: t.note || '' }, 'note-input');
+  else openSheet({ kind: 'confirm', id: t.id }, 'confirm-done');
 }
 function saveEdit() {
   const s = ui.sheet, d = s.draft;
@@ -1514,7 +1580,9 @@ function saveEdit() {
   const target = s.mvd === 'today' ? t0 : s.mvd === 'tomorrow' ? addDays(t0, 1) : '';
   if (target && d.mvdDate !== target && mvdFor(target).filter(x => x.id !== d.id).length >= MAX_MVD) { s.err = relDay(target) + ' already has ' + MAX_MVD + ' tasks. Remove one first.'; renderSheet(); return; }
   const t = s.isNew ? d : S.tasks[s.id];
+  const areaChanged = !s.isNew && t.area !== d.area;
   if (!s.isNew) ['title', 'area', 'priority', 'tag', 'due', 'firstStep', 'link', 'details', 'note'].forEach(k => { t[k] = d[k]; });
+  if (areaChanged && t.mvdDate) t.mvdOrder = nextOrder(t.mvdDate, t.area, t.id);
   t.details = String(t.details || '').trim();
   t.firstStep = String(t.firstStep || '').trim();
   applyRepeat(t, s.repeat);
@@ -1533,9 +1601,23 @@ const ACTIONS = {
   quick: () => openQuick(),
   close: () => closeSheet(),
   complete: el => completeFlow(task(el)),
-  reopen: el => { const t = task(el); if (!t) return; t.status = 'Open'; t.completed = ''; put('tasks', t); render(); toast('Marked not done'); },
+  reopen: el => {
+    const t = task(el);
+    if (!t || t.status !== 'Done') return;
+    const was = t.completed;
+    t.status = 'Open'; t.completed = '';
+    put('tasks', t); render();
+    toast('Marked not done', { label: 'Undo', fn: () => { t.status = 'Done'; t.completed = was; put('tasks', t); render(); } });
+  },
   edit: el => openEdit(el.dataset.id, { focus: el.dataset.focus }),
-  'toggle-details': el => { const id = el.dataset.id; const first = mvdFor(today())[0]; const cur = ui.expanded[id] === undefined ? !!(first && first.id === id) : ui.expanded[id]; ui.expanded[id] = !cur; render(); },
+  'toggle-details': el => { const t = task(el); if (!t) return; const cur = ui.expanded[t.id] === undefined ? isLead(t) : ui.expanded[t.id]; ui.expanded[t.id] = !cur; render(); },
+  'area-toggle': el => {
+    const c = Object.assign({}, S.prefs.todayCollapsed);
+    c[el.dataset.area] = !c[el.dataset.area];
+    S.prefs.todayCollapsed = c;
+    persist();
+    render();
+  },
   plan: el => { closeSheetIfOpen(); startPlan(el.dataset.target); ui.view = 'plan'; render(); window.scrollTo(0, 0); },
   'plan-target': el => { startPlan(el.dataset.target); render(); },
   tab: el => { S.prefs.tab = el.dataset.area; persist(); render(); },
@@ -1565,8 +1647,12 @@ const ACTIONS = {
   'plan-new-area': el => { ui.plan.newArea = el.dataset.area; render(); },
   'pick-next': () => { if (!ui.plan.selected.length) return; ui.plan.step = 'prep'; render(); window.scrollTo(0, 0); },
   move: el => {
-    const p = ui.plan, i = p.selected.indexOf(el.dataset.id), j = i + Number(el.dataset.dir);
-    if (i < 0 || j < 0 || j >= p.selected.length) return;
+    // Moves within the task's own list (Work or Personal), skipping the other area's tasks.
+    const p = ui.plan, t = task(el), dir = Number(el.dataset.dir), i = p.selected.indexOf(el.dataset.id);
+    if (!t || i < 0) return;
+    let j = i + dir;
+    while (j >= 0 && j < p.selected.length && (S.tasks[p.selected[j]] || {}).area !== t.area) j += dir;
+    if (j < 0 || j >= p.selected.length) return;
     const tmp = p.selected[i]; p.selected[i] = p.selected[j]; p.selected[j] = tmp;
     render();
     const btn = document.querySelector('[data-action="move"][data-id="' + CSS.escape(el.dataset.id) + '"][data-dir="' + el.dataset.dir + '"]');
@@ -1670,6 +1756,14 @@ const SUBMITS = {
     render();
   },
   edit: () => saveEdit(),
+  'confirm-done': () => {
+    const t = S.tasks[ui.sheet.id];
+    closeSheet();
+    if (!t || t.deleted || t.status !== 'Open') return;
+    const undo = completeTask(t);
+    render();
+    toast('Done: ' + t.title, { label: 'Undo', fn: undo });
+  },
   note: () => {
     const s = ui.sheet, t = S.tasks[s.id];
     const note = (document.getElementById('note-input') || {}).value || s.note;

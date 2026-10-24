@@ -1,6 +1,6 @@
 // Keeps the app shell on the device so it opens instantly, even offline.
 // Bump VERSION after you change index.html so phones pick up the new copy.
-const VERSION = 'mvd-v2';
+const VERSION = 'mvd-v3';
 const FONTS = VERSION + '-fonts';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
